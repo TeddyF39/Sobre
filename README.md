@@ -95,7 +95,12 @@ Affiche tout ce que Sobre ferait (commandes lancées, fichiers écrits) sans rie
 Vérifie, agent par agent, que chaque élément est bien branché. `OK` = vérifié, `?` = impossible à vérifier depuis l'extérieur (les plugins se vérifient dans Claude Code), `X` = absent. À lancer après l'installation et après chaque redémarrage de tes agents.
 
 **`sobre stats`** — 0 token
-Tableau des tokens utilisés : 5 dernières heures, aujourd'hui, 7 derniers jours, par modèle et par projet, plus le dernier % de ta limite 5h relevé par la barre d'état. À lancer dans un terminal séparé : ça ne coûte rien.
+Tableau des tokens utilisés : 5 dernières heures, aujourd'hui, 7 derniers jours et **depuis le début**, avec pour chaque ligne le **prix en euros si tu avais payé ces tokens à l'API**, sans abonnement. Aussi : le détail par modèle et par projet, et le dernier % de ta limite 5h relevé par la barre d'état. À lancer dans un terminal séparé : ça ne coûte rien.
+
+- `sobre stats --abonnement 21.60` : indique ton abonnement en euros par mois (enregistré) pour comparer avec le prix de l'API.
+- `sobre stats --taux 0.87` : change le taux dollar → euro (enregistré).
+- **Depuis le début** : Claude Code efface ses journaux après 30 jours par défaut. Sobre garde son propre historique dans `~/.sobre/historique.json` à chaque `sobre stats`, donc le total continue de grandir même quand les journaux disparaissent. Le point de départ est le plus vieux journal encore présent au premier lancement.
+- **Prix** : prix publics de l'API par million de tokens (entrée, sortie, écriture et lecture du cache, par modèle), relevés le 22/11/2026, hors TVA. C'est une estimation : un abonnement ne se facture pas au token.
 
 **`sobre mesure`**
 Lit tes journaux Claude Code et compare les tokens consommés par heure de travail avant et après l'installation. Trois lignes : le total, le total hors lecture du cache (ce qui pèse le plus), et les réponses seules. Attends au moins 5 heures de travail après l'installation pour un chiffre fiable. `--jours 30` élargit la période de comparaison.
@@ -157,7 +162,8 @@ La mémoire durable du projet, là où la passation ne sert que pour une session
 | Quand | Avant un `/clear` en pleine tâche | Après une décision ou un bug résolu |
 
 **La barre d'état** (installée par Sobre) — 0 token
-En bas de Claude Code, en permanence : `Opus · ctx 34 % · 5h 24 % (reset 15:40) · 7j 41 % · 69 k tokens en contexte`.
+En bas de Claude Code, en permanence : `Opus · ctx 34 % · 5h 24 % (reset 15:40) · 7j 41 % · session ≈ 0,42 €`.
+- `session ≈` : ce qu'aurait coûté la session au prix de l'API (calcul fait par Claude Code lui-même, remis à zéro à chaque `/clear`).
 - `5h` : part de ta limite de 5 heures déjà utilisée, et l'heure à laquelle elle se recharge.
 - `ctx` : remplissage de la conversation. Au-delà de 60 à 70 %, pense à `/sobre-passation` puis `/clear`.
 - Elle tourne sur ton PC, sans appel à Claude : **aucun token consommé**, même ouverte toute la journée.

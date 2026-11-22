@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.5.0';
+const VERSION = '0.6.0';
 const DEPOT = 'TeddyF39/sobre';
 const HOME = process.env.SOBRE_HOME || os.homedir();
 const WIN = process.platform === 'win32';
@@ -731,7 +731,7 @@ async function cmdBarre() {
       parts.push(`5h ${Math.round(rl.five_hour.used_percentage)} %` + (rl.five_hour.resets_at ? ` (reset ${heure(rl.five_hour.resets_at)})` : ''));
     if (rl.seven_day && rl.seven_day.used_percentage != null) parts.push(`7j ${Math.round(rl.seven_day.used_percentage)} %`);
     const cw = j.context_window || {};
-    if (cw.total_input_tokens != null) parts.push(`${k((cw.total_input_tokens || 0) + (cw.total_output_tokens || 0))} tokens en contexte`);
+    if (j.cost && j.cost.total_cost_usd != null) parts.push(`session ≈ ${euros(j.cost.total_cost_usd, lireConfig().taux)}`);
     process.stdout.write(parts.join(' · ') || 'Sobre');
     if (rl.five_hour || rl.seven_day) {
       mkdirp(DOSSIER);
@@ -771,18 +771,110 @@ function retirerBarre() {
   return false;
 }
 
+// ---------------------------------------------------------------- prix et historique
+// Prix publics de l'API en dollars par million de tokens :
+// [entree, sortie, ecriture cache 5 min, ecriture cache 1 h, lecture cache]
+// Source : https://platform.claude.com/docs/en/about-claude/pricing (releve le 22/11/2026)
+const PRIX = {
+  'fable-5.2': [8, 40, 10, 16, 0.2],   'mythos-5.2': [8, 40, 10, 16, 0.2],
+  'fable-5.1': [10, 50, 12.5, 20, 0.25], 'mythos-5.1': [10, 50, 12.5, 20, 0.25],
+  'fable-5': [10, 50, 12.5, 20, 1],    'mythos-5': [10, 50, 12.5, 20, 1],
+  'opus-5.5': [4, 20, 5, 8, 0.2],      'opus-5': [5, 25, 6.25, 10, 0.5],
+  'opus-4.8': [5, 25, 6.25, 10, 0.5],  'opus-4.7': [5, 25, 6.25, 10, 0.5],
+  'opus-4.6': [5, 25, 6.25, 10, 0.5],  'opus-4.5': [5, 25, 6.25, 10, 0.5],
+  'opus-4.1': [15, 75, 18.75, 30, 1.5], 'opus-4': [15, 75, 18.75, 30, 1.5],
+  'sonnet-5.5': [2, 10, 2.5, 4, 0.1],  'sonnet-5': [2, 10, 2.5, 4, 0.2],
+  'sonnet-4.6': [3, 15, 3.75, 6, 0.3], 'sonnet-4.5': [3, 15, 3.75, 6, 0.3], 'sonnet-4': [3, 15, 3.75, 6, 0.3],
+  'haiku-5.5': [0.1, 0.5, 0.125, 0.2, 0.01], 'haiku-5.5-long': [0.5, 2.5, 0.625, 1, 0.05],
+  'haiku-4.5': [1, 5, 1.25, 2, 0.1],
+};
+const FICHIER_CONFIG = path.join(DOSSIER, 'config.json');
+const FICHIER_HISTO = path.join(DOSSIER, 'historique.json');
+
+function lireConfig() {
+  try { return { taux: 0.87, abonnement: null, ...JSON.parse(lire(FICHIER_CONFIG)) }; }
+  catch { return { taux: 0.87, abonnement: null }; }
+}
+
+function cleModele(id) {
+  const m = /(opus|sonnet|haiku|fable|mythos)-(\d)(?:-(\d))?(?!\d)/.exec(id || '');
+  if (!m) return null;
+  return `${m[1]}-${m[2]}${m[3] ? '.' + m[3] : ''}`;
+}
+
+function coutUsd(u) {
+  let cle = cleModele(u.modele);
+  if (cle === 'haiku-5.5' && u.entree + u.cacheEcrit + u.cacheLu > 100000) cle = 'haiku-5.5-long';
+  const p = PRIX[cle];
+  if (!p) return null;
+  const e1h = Math.min(u.cacheEcrit1h || 0, u.cacheEcrit);
+  const e5m = u.cacheEcrit - e1h;
+  return (u.entree * p[0] + u.sortie * p[1] + e5m * p[2] + e1h * p[3] + u.cacheLu * p[4]) / 1e6;
+}
+
+// Historique cumule par jour et par modele : survit a la suppression des
+// journaux par Claude Code (30 jours par defaut).
+function majHistorique(usages) {
+  let h = {};
+  try { h = JSON.parse(lire(FICHIER_HISTO)) || {}; } catch { h = {}; }
+  const frais = {};
+  for (const u of usages) {
+    const jour = u.t.toISOString().slice(0, 10);
+    const cle = `${jour}|${cleModele(u.modele) || u.modele}`;
+    const a = frais[cle] || (frais[cle] = { tokens: 0, frais: 0, sortie: 0, usd: 0, inconnu: 0, n: 0 });
+    const tot = u.entree + u.sortie + u.cacheEcrit + u.cacheLu;
+    a.tokens += tot; a.frais += u.entree + u.sortie + u.cacheEcrit; a.sortie += u.sortie; a.n++;
+    const c = coutUsd(u);
+    if (c == null) a.inconnu += tot; else a.usd += c;
+  }
+  for (const [cle, v] of Object.entries(frais)) {
+    if (!h[cle] || v.tokens >= h[cle].tokens) h[cle] = v;
+  }
+  if (!SIMULATION) {
+    mkdirp(DOSSIER);
+    const tmp = FICHIER_HISTO + '.tmp';
+    fs.writeFileSync(tmp, JSON.stringify(h));
+    fs.renameSync(tmp, FICHIER_HISTO);
+  }
+  return h;
+}
+
+function totalHistorique(h, filtre = () => true) {
+  const t = { tokens: 0, frais: 0, sortie: 0, usd: 0, inconnu: 0, n: 0, debut: null, modeles: {} };
+  for (const [cle, v] of Object.entries(h)) {
+    const [jour, modele] = cle.split('|');
+    if (!filtre(jour)) continue;
+    for (const f of ['tokens', 'frais', 'sortie', 'usd', 'inconnu', 'n']) t[f] += v[f] || 0;
+    if (!t.debut || jour < t.debut) t.debut = jour;
+    const m = t.modeles[modele] || (t.modeles[modele] = { tokens: 0, usd: 0 });
+    m.tokens += v.tokens; m.usd += v.usd;
+  }
+  return t;
+}
+
+const euros = (usd, taux) => (usd * taux).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: usd * taux < 10 ? 2 : 0 });
+
 function cmdStats(opts) {
+  const cfg = lireConfig();
+  if (opts.taux || opts.abonnement != null) {
+    if (opts.taux) cfg.taux = opts.taux;
+    if (opts.abonnement != null) cfg.abonnement = opts.abonnement;
+    if (!SIMULATION) { mkdirp(DOSSIER); fs.writeFileSync(FICHIER_CONFIG, JSON.stringify(cfg, null, 2)); }
+  }
+
   const court = opts.court;
   const usages = lireUsages();
+  const histo = majHistorique(usages);
   const maintenant = Date.now();
   const depuis = (ms) => usages.filter((u) => maintenant - u.t <= ms);
   const minuit = new Date(); minuit.setHours(0, 0, 0, 0);
   const somme = (l) => l.reduce((a, u) => {
+    a.usd += coutUsd(u) || 0;
     a.total += u.entree + u.sortie + u.cacheEcrit + u.cacheLu;
     a.frais += u.entree + u.sortie + u.cacheEcrit;
     a.sortie += u.sortie; a.n++;
     return a;
-  }, { total: 0, frais: 0, sortie: 0, n: 0 });
+  }, { total: 0, frais: 0, sortie: 0, n: 0, usd: 0 });
 
   const lignes = [
     ['5 dernieres heures', somme(depuis(5 * 3600e3))],
@@ -790,8 +882,20 @@ function cmdStats(opts) {
     ['7 derniers jours', somme(depuis(7 * 864e5))],
   ];
   const out = [];
-  out.push('| Periode | Total | Hors cache lu | Reponses | Messages |', '|---|---:|---:|---:|---:|');
-  for (const [n, s] of lignes) out.push(`| ${n} | ${k(s.total)} | ${k(s.frais)} | ${k(s.sortie)} | ${s.n} |`);
+  const tout = totalHistorique(histo);
+  out.push('| Periode | Total | Hors cache lu | Reponses | Messages | Prix API |', '|---|---:|---:|---:|---:|---:|');
+  for (const [n, s] of lignes) out.push(`| ${n} | ${k(s.total)} | ${k(s.frais)} | ${k(s.sortie)} | ${s.n} | ${euros(s.usd, cfg.taux)} |`);
+  if (tout.debut) out.push(`| **Depuis le ${new Date(tout.debut).toLocaleDateString('fr-FR')}** | **${k(tout.tokens)}** | **${k(tout.frais)}** | **${k(tout.sortie)}** | **${tout.n}** | **${euros(tout.usd, cfg.taux)}** |`);
+  if (tout.debut) {
+    out.push('', `Si tu avais paye ces tokens un par un a l'API : ${euros(tout.usd, cfg.taux)} (${tout.usd.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} $, 1 $ = ${String(cfg.taux).replace(".", ",")} €).`);
+    if (cfg.abonnement) {
+      const mois = Math.max(1, Math.ceil((Date.now() - new Date(tout.debut)) / (30 * 864e5)));
+      const paye = mois * cfg.abonnement;
+      out.push(`Abonnement sur la periode : ~${euros(paye / cfg.taux, cfg.taux)} (${mois} mois). ` +
+        (tout.usd * cfg.taux > paye ? `Economie : ~${euros(tout.usd - paye / cfg.taux, cfg.taux)}.` : 'L\'API t\'aurait coute moins cher.'));
+    }
+    if (tout.inconnu) out.push(`Attention : ${k(tout.inconnu)} tokens d'un modele sans prix connu ne sont pas comptes.`);
+  }
 
   let cache = null;
   try { cache = JSON.parse(lire(CACHE_BARRE)); } catch { /* ignore */ }
@@ -806,11 +910,14 @@ function cmdStats(opts) {
     const semaine = depuis(7 * 864e5);
     const grouper = (cle) => Object.entries(semaine.reduce((a, u) => { const c = u[cle]; a[c] = (a[c] || 0) + u.entree + u.sortie + u.cacheEcrit + u.cacheLu; return a; }, {}))
       .sort((x, y) => y[1] - x[1]).slice(0, 5);
-    out.push('', '| Par modele (7 j) | Total |', '|---|---:|');
-    for (const [m, v] of grouper('modele')) out.push(`| ${m} | ${k(v)} |`);
+    out.push('', '| Par modele (depuis le debut) | Tokens | Prix API |', '|---|---:|---:|');
+    for (const [m, v] of Object.entries(tout.modeles).sort((x, y) => y[1].usd - x[1].usd).slice(0, 6))
+      out.push(`| ${m} | ${k(v.tokens)} | ${euros(v.usd, cfg.taux)} |`);
     out.push('', '| Par projet (7 j) | Total |', '|---|---:|');
     for (const [m, v] of grouper('projet')) out.push(`| ${m} | ${k(v)} |`);
-    out.push('', 'Hors cache lu = ce qui pese le plus. Le cache lu coute beaucoup moins cher.');
+    out.push('', 'Hors cache lu = ce qui pese le plus. Le cache lu coute beaucoup moins cher.',
+      'Prix API = prix publics par million de tokens (releves le 22/11/2026), hors TVA. Taux : sobre stats --taux 0.87',
+      'Comparer a ton abonnement : sobre stats --abonnement 21.60   (en euros par mois)');
   }
   if (!usages.length) out.push('', 'Aucun journal Claude Code trouve.');
   log(out.join('\n'));
@@ -850,6 +957,7 @@ function lireUsages() {
           entree: u.input_tokens || 0,
           sortie: u.output_tokens || 0,
           cacheEcrit: u.cache_creation_input_tokens || 0,
+          cacheEcrit1h: (u.cache_creation && u.cache_creation.ephemeral_1h_input_tokens) || 0,
           cacheLu: u.cache_read_input_tokens || 0,
           projet: o.cwd ? path.basename(o.cwd) : '?',
           modele: (o.message.model || '?').replace(/^claude-/, ''),
@@ -1024,6 +1132,8 @@ function analyser(argv) {
     else if (a.startsWith('--outils')) o.outils = liste(valeur());
     else if (a.startsWith('--jours')) o.jours = parseInt(valeur(), 10);
     else if (a === '--court') o.court = true;
+    else if (a.startsWith('--taux')) o.taux = parseFloat(String(valeur()).replace(',', '.'));
+    else if (a.startsWith('--abonnement')) o.abonnement = parseFloat(String(valeur()).replace(',', '.'));
     else if (a === '-h' || a === '--help' || a === 'aide') o.commande = 'aide';
     else if (a === '-v' || a === '--version') o.commande = 'version';
     else if (!a.startsWith('-') && !o.commande) o.commande = a;
