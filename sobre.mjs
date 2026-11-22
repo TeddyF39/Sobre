@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const DEPOT = 'TeddyF39/sobre';
 const HOME = process.env.SOBRE_HOME || os.homedir();
 const WIN = process.platform === 'win32';
@@ -42,6 +42,7 @@ const OUTILS = {
   eclaireur:    { nom: 'Agent eclaireur', role: 'recherches dans le projet deleguees a Haiku (Claude Code)' },
   passation:    { nom: 'Skill passation', role: '/sobre-passation pour /clear sans perdre le fil (Claude Code)' },
   cerveau:      { nom: 'Cerveau du projet', role: 'memoire durable .cerveau/ (Obsidian) pour ne pas re-explorer le code' },
+  stats:        { nom: 'Stats', role: 'barre d\'etat (limite 5h, contexte) + /sobre-stats, sans consommer de tokens' },
   'cerveau-auto': { nom: 'Cerveau automatique', role: 'cree le cerveau une fois par projet et note decisions / pieges en une ligne' },
   caveman:      { nom: 'Caveman',      role: 'reponses plus courtes, code intact (Claude Code)' },
   codegraph:    { nom: 'CodeGraph',    role: 'graphe du code interroge au lieu de lire des fichiers' },
@@ -50,11 +51,11 @@ const OUTILS = {
 
 const PROFILS = {
   qualite:   { desc: 'Zero compromis : on coupe le bruit, pas les reponses.',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto'], concis: false },
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto'], concis: false },
   equilibre: { desc: 'Recommande : + reponses plus courtes (Caveman) et code plus simple (Ponytail).',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail'], concis: true },
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail'], concis: true },
   max:       { desc: '+ CodeGraph : pour les gros projets.',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'], concis: true },
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'], concis: true },
 };
 
 const AGENTS = {
@@ -65,7 +66,7 @@ const AGENTS = {
 
 // Ce que chaque outil sait faire pour chaque agent
 const PRISE_EN_CHARGE = {
-  claude: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'],
+  claude: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'],
   codex:  ['regles', 'rtk', 'context-mode', 'cerveau', 'cerveau-auto', 'ponytail', 'codegraph'],
   cursor: ['regles', 'rtk', 'context-mode', 'cerveau', 'cerveau-auto', 'codegraph'],
 };
@@ -489,6 +490,11 @@ function installerPour(agent, profil, outils, etat) {
     ecrire(p('.claude', 'agents', 'sobre-eclaireur.md'), AGENT_ECLAIREUR);
     ok('Agent sobre-eclaireur (Haiku) installe');
   }
+  if (pris.includes('stats') && agent === 'claude') {
+    poserBarre(etat);
+    ecrire(p('.claude', 'commands', 'sobre-stats.md'), commandeStats());
+    ok('Commande /sobre-stats installee');
+  }
   if (pris.includes('passation')) {
     ecrire(p('.claude', 'skills', 'sobre-passation', 'SKILL.md'), SKILL_PASSATION);
     ok('Skill /sobre-passation installe');
@@ -621,6 +627,8 @@ function cmdEtat() {
     if (a === 'claude') {
       ligne(lire(p('.claude', 'CLAUDE.md')).includes(MD_DEBUT), 'Regles Sobre dans ~/.claude/CLAUDE.md');
       ligne(fs.existsSync(p('.claude', 'agents', 'sobre-eclaireur.md')), 'Agent sobre-eclaireur');
+      ligne((() => { try { return estBarreSobre(JSON.parse(lire(p('.claude', 'settings.json'))).statusLine?.command); } catch { return false; } })(), 'Barre d\'etat Sobre (0 token)');
+      ligne(fs.existsSync(p('.claude', 'commands', 'sobre-stats.md')), 'Commande /sobre-stats');
       ligne(fs.existsSync(p('.claude', 'skills', 'sobre-passation', 'SKILL.md')), 'Skill /sobre-passation');
       ligne(fs.existsSync(p('.claude', 'skills', 'sobre-cerveau', 'SKILL.md')), 'Skill /sobre-cerveau');
       ligne(pluginPresent('context-mode') || null, 'Plugin context-mode (verifie avec /context-mode:ctx-doctor)');
@@ -681,6 +689,133 @@ Ensuite :
   - Git : versionne .cerveau/ pour le partager, ou ajoute-le a .gitignore pour le garder pour toi.`);
 }
 
+// ---------------------------------------------------------------- stats
+const CACHE_BARRE = path.join(DOSSIER, 'derniere-barre.json');
+const estBarreSobre = (cmd) => /sobre\.mjs"?\s+barre/.test(String(cmd || ''));
+const commandeStats = () => `---
+description: Stats de consommation de tokens (Sobre). Affiche le tableau tel quel.
+allowed-tools: Bash(node:*)
+---
+
+!\`node "${cheminScript()}" stats --court\`
+
+Recopie le tableau ci-dessus tel quel, sans rien ajouter.
+`;
+
+function cheminScript() { return fileURLToPath(import.meta.url).replace(/\\/g, '/'); }
+
+function k(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace('.', ',') + ' M';
+  if (n >= 1e3) return Math.round(n / 1e3) + ' k';
+  return String(Math.round(n));
+}
+
+async function lireStdin() {
+  if (process.stdin.isTTY) return '';
+  let d = '';
+  for await (const c of process.stdin) d += c;
+  return d;
+}
+
+// Barre d'etat Claude Code : tourne en local, ne consomme aucun token.
+async function cmdBarre() {
+  try {
+    const j = JSON.parse((await lireStdin()) || '{}');
+    const parts = [];
+    if (j.model && j.model.display_name) parts.push(j.model.display_name);
+    const ctx = j.context_window && j.context_window.used_percentage;
+    if (ctx != null) parts.push(`ctx ${Math.round(ctx)} %`);
+    const rl = j.rate_limits || {};
+    const heure = (t) => new Date(t * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    if (rl.five_hour && rl.five_hour.used_percentage != null)
+      parts.push(`5h ${Math.round(rl.five_hour.used_percentage)} %` + (rl.five_hour.resets_at ? ` (reset ${heure(rl.five_hour.resets_at)})` : ''));
+    if (rl.seven_day && rl.seven_day.used_percentage != null) parts.push(`7j ${Math.round(rl.seven_day.used_percentage)} %`);
+    const cw = j.context_window || {};
+    if (cw.total_input_tokens != null) parts.push(`${k((cw.total_input_tokens || 0) + (cw.total_output_tokens || 0))} tokens en contexte`);
+    process.stdout.write(parts.join(' · ') || 'Sobre');
+    if (rl.five_hour || rl.seven_day) {
+      mkdirp(DOSSIER);
+      fs.writeFileSync(CACHE_BARRE, JSON.stringify({ le: Date.now(), five_hour: rl.five_hour, seven_day: rl.seven_day }));
+    }
+  } catch { process.stdout.write('Sobre'); }
+}
+
+function poserBarre(etat) {
+  const f = p('.claude', 'settings.json');
+  let j = {};
+  const brut = lire(f);
+  if (brut.trim()) {
+    try { j = JSON.parse(brut); }
+    catch { aFaire('~/.claude/settings.json illisible : barre d\'etat non installee.'); return; }
+  }
+  if (j.statusLine && !estBarreSobre(j.statusLine.command)) {
+    aFaire('Tu as deja une barre d\'etat : je la garde. Pour celle de Sobre, remplace sa commande par : node "' + cheminScript() + '" barre');
+    return;
+  }
+  j.statusLine = { type: 'command', command: `node "${cheminScript()}" barre` };
+  ecrire(f, JSON.stringify(j, null, 2) + '\n');
+  noterAjout(etat, 'claude-statusline');
+  ok('Barre d\'etat installee (limite 5h, contexte) - 0 token');
+}
+
+function retirerBarre() {
+  const f = p('.claude', 'settings.json');
+  try {
+    const j = JSON.parse(lire(f));
+    if (j.statusLine && estBarreSobre(j.statusLine.command)) {
+      delete j.statusLine;
+      ecrire(f, JSON.stringify(j, null, 2) + '\n');
+      return true;
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+function cmdStats(opts) {
+  const court = opts.court;
+  const usages = lireUsages();
+  const maintenant = Date.now();
+  const depuis = (ms) => usages.filter((u) => maintenant - u.t <= ms);
+  const minuit = new Date(); minuit.setHours(0, 0, 0, 0);
+  const somme = (l) => l.reduce((a, u) => {
+    a.total += u.entree + u.sortie + u.cacheEcrit + u.cacheLu;
+    a.frais += u.entree + u.sortie + u.cacheEcrit;
+    a.sortie += u.sortie; a.n++;
+    return a;
+  }, { total: 0, frais: 0, sortie: 0, n: 0 });
+
+  const lignes = [
+    ['5 dernieres heures', somme(depuis(5 * 3600e3))],
+    ['Aujourd\'hui', somme(usages.filter((u) => u.t >= minuit))],
+    ['7 derniers jours', somme(depuis(7 * 864e5))],
+  ];
+  const out = [];
+  out.push('| Periode | Total | Hors cache lu | Reponses | Messages |', '|---|---:|---:|---:|---:|');
+  for (const [n, s] of lignes) out.push(`| ${n} | ${k(s.total)} | ${k(s.frais)} | ${k(s.sortie)} | ${s.n} |`);
+
+  let cache = null;
+  try { cache = JSON.parse(lire(CACHE_BARRE)); } catch { /* ignore */ }
+  if (cache && cache.five_hour) {
+    const age = Math.round((maintenant - cache.le) / 60000);
+    const reset = cache.five_hour.resets_at ? new Date(cache.five_hour.resets_at * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '?';
+    out.push('', `Limite 5h : ${Math.round(cache.five_hour.used_percentage)} % utilises, reset a ${reset}` +
+      (cache.seven_day ? ` · 7 jours : ${Math.round(cache.seven_day.used_percentage)} %` : '') + ` (releve il y a ${age} min)`);
+  }
+
+  if (!court) {
+    const semaine = depuis(7 * 864e5);
+    const grouper = (cle) => Object.entries(semaine.reduce((a, u) => { const c = u[cle]; a[c] = (a[c] || 0) + u.entree + u.sortie + u.cacheEcrit + u.cacheLu; return a; }, {}))
+      .sort((x, y) => y[1] - x[1]).slice(0, 5);
+    out.push('', '| Par modele (7 j) | Total |', '|---|---:|');
+    for (const [m, v] of grouper('modele')) out.push(`| ${m} | ${k(v)} |`);
+    out.push('', '| Par projet (7 j) | Total |', '|---|---:|');
+    for (const [m, v] of grouper('projet')) out.push(`| ${m} | ${k(v)} |`);
+    out.push('', 'Hors cache lu = ce qui pese le plus. Le cache lu coute beaucoup moins cher.');
+  }
+  if (!usages.length) out.push('', 'Aucun journal Claude Code trouve.');
+  log(out.join('\n'));
+}
+
 // ---------------------------------------------------------------- mesure
 function dossiersJournaux() {
   const d = [];
@@ -716,6 +851,8 @@ function lireUsages() {
           sortie: u.output_tokens || 0,
           cacheEcrit: u.cache_creation_input_tokens || 0,
           cacheLu: u.cache_read_input_tokens || 0,
+          projet: o.cwd ? path.basename(o.cwd) : '?',
+          modele: (o.message.model || '?').replace(/^claude-/, ''),
         });
       }
     }
@@ -775,6 +912,8 @@ function cmdDesinstaller(opts) {
   if (agents.includes('claude')) {
     if (retirerBloc(p('.claude', 'CLAUDE.md'))) ok('Regles retirees de ~/.claude/CLAUDE.md');
     if (supprimer(p('.claude', 'agents', 'sobre-eclaireur.md'))) ok('Agent sobre-eclaireur supprime');
+    if (retirerBarre()) ok('Barre d\'etat retiree');
+    if (supprimer(p('.claude', 'commands', 'sobre-stats.md'))) ok('Commande /sobre-stats supprimee');
     if (supprimer(p('.claude', 'skills', 'sobre-passation', 'SKILL.md'))) {
       try { fs.rmdirSync(p('.claude', 'skills', 'sobre-passation')); } catch { /* ignore */ }
       ok('Skill sobre-passation supprime');
@@ -858,6 +997,7 @@ ${gras('Usage')}
   sobre --oui                    sans questions (scripts)
 
   sobre etat                     verifie ce qui est branche
+  sobre stats                    tokens utilises : 5 h, jour, semaine, par modele et projet
   sobre mesure [--jours 14]      consommation avant / apres (Claude Code)
   sobre projet                   regles Sobre pour le projet courant (Cursor)
   sobre cerveau                  cree le cerveau du projet courant (.cerveau/, Obsidian)
@@ -883,6 +1023,7 @@ function analyser(argv) {
     else if (a.startsWith('--sans')) o.sans = liste(valeur());
     else if (a.startsWith('--outils')) o.outils = liste(valeur());
     else if (a.startsWith('--jours')) o.jours = parseInt(valeur(), 10);
+    else if (a === '--court') o.court = true;
     else if (a === '-h' || a === '--help' || a === 'aide') o.commande = 'aide';
     else if (a === '-v' || a === '--version') o.commande = 'version';
     else if (!a.startsWith('-') && !o.commande) o.commande = a;
@@ -892,7 +1033,7 @@ function analyser(argv) {
 
 const opts = analyser(process.argv.slice(2));
 const COMMANDES = {
-  installer: cmdInstaller, etat: cmdEtat, mesure: cmdMesure, projet: cmdProjet, cerveau: cmdCerveau,
+  installer: cmdInstaller, etat: cmdEtat, stats: cmdStats, barre: cmdBarre, mesure: cmdMesure, projet: cmdProjet, cerveau: cmdCerveau,
   desinstaller: cmdDesinstaller, restaurer: cmdRestaurer, maj: cmdMaj, aide: cmdAide,
   version: () => log(VERSION),
 };

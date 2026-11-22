@@ -51,6 +51,7 @@ sobre --simulation
 | [CodeGraph](https://github.com/colbymchenry/codegraph) | Graphe du code interrogé au lieu de lire des fichiers entiers | MCP | MCP | MCP |
 | **Règles Sobre** | 6 à 8 consignes courtes : lire des plages de lignes, ne montrer que les échecs des tests… | CLAUDE.md | AGENTS.md | `sobre projet` |
 | **Agent `sobre-eclaireur`** | Les recherches dans le projet passent par Haiku, moins cher, qui renvoie une synthèse | ✓ | — | — |
+| **Stats** | Barre d'état en bas de Claude Code : % de ta limite 5h et 7 jours, heure du reset, remplissage du contexte. Tourne en local, **0 token**. Plus `sobre stats` et `/sobre-stats` | ✓ | — | — |
 | **Cerveau automatique** | Crée le cerveau une seule fois par projet (exploration déléguée à Haiku), puis ajoute une ligne après chaque décision ou bug résolu, sans relire les notes | ✓ | ajout de lignes | ajout de lignes |
 | **Cerveau du projet** | Mémoire durable du projet dans `.cerveau/` (notes Markdown, s'ouvre dans Obsidian) : l'agent lit un index de 30 lignes au lieu de ré-explorer le code à chaque session | `/sobre-cerveau` | règles | règles |
 | **Skill `/sobre-passation`** | Résume la session dans `.claude/passation.md` : tu fais `/clear` et tu reprends sans tout réexpliquer | ✓ | — | — |
@@ -71,6 +72,7 @@ Sobre délègue l'installation de chaque outil à sa méthode officielle (winget
 ```
 sobre                          installe / met à jour (relançable sans doublon)
 sobre etat                     vérifie ce qui est branché
+sobre stats                    tokens utilisés : 5 h, jour, semaine, par modèle et projet (0 token)
 sobre mesure [--jours 14]      consommation avant / après (Claude Code)
 sobre projet                   règles Sobre pour le projet courant (Cursor) + index CodeGraph en profil max
 sobre cerveau                  crée le cerveau du projet courant (.cerveau/, compatible Obsidian)
@@ -91,6 +93,9 @@ Affiche tout ce que Sobre ferait (commandes lancées, fichiers écrits) sans rie
 
 **`sobre etat`**
 Vérifie, agent par agent, que chaque élément est bien branché. `OK` = vérifié, `?` = impossible à vérifier depuis l'extérieur (les plugins se vérifient dans Claude Code), `X` = absent. À lancer après l'installation et après chaque redémarrage de tes agents.
+
+**`sobre stats`** — 0 token
+Tableau des tokens utilisés : 5 dernières heures, aujourd'hui, 7 derniers jours, par modèle et par projet, plus le dernier % de ta limite 5h relevé par la barre d'état. À lancer dans un terminal séparé : ça ne coûte rien.
 
 **`sobre mesure`**
 Lit tes journaux Claude Code et compare les tokens consommés par heure de travail avant et après l'installation. Trois lignes : le total, le total hors lecture du cache (ce qui pèse le plus), et les réponses seules. Attends au moins 5 heures de travail après l'installation pour un chiffre fiable. `--jours 30` élargit la période de comparaison.
@@ -151,6 +156,16 @@ La mémoire durable du projet, là où la passation ne sert que pour une session
 | Contenu | Où j'en suis, prochaine étape | Comment le projet est fait, pourquoi, pièges |
 | Quand | Avant un `/clear` en pleine tâche | Après une décision ou un bug résolu |
 
+**La barre d'état** (installée par Sobre) — 0 token
+En bas de Claude Code, en permanence : `Opus · ctx 34 % · 5h 24 % (reset 15:40) · 7j 41 % · 69 k tokens en contexte`.
+- `5h` : part de ta limite de 5 heures déjà utilisée, et l'heure à laquelle elle se recharge.
+- `ctx` : remplissage de la conversation. Au-delà de 60 à 70 %, pense à `/sobre-passation` puis `/clear`.
+- Elle tourne sur ton PC, sans appel à Claude : **aucun token consommé**, même ouverte toute la journée.
+- Si tu avais déjà ta propre barre d'état, Sobre la garde et t'indique comment ajouter la sienne.
+
+**`/sobre-stats`** — environ 500 tokens par utilisation
+Affiche le même tableau que `sobre stats` directement dans Claude Code. Pratique, mais Claude doit lire le tableau : ça coûte un peu. Pour 0 token, utilise la barre d'état ou `sobre stats` dans un autre terminal.
+
 **`/compact`**
 Claude résume lui-même la conversation et continue avec le résumé. Plus rapide que la passation, mais tu ne choisis pas ce qui est gardé et le résumé disparaît avec la session. Bien pour alléger sans changer de sujet.
 
@@ -176,7 +191,7 @@ Rien à taper : Claude lui confie tout seul les recherches dans le projet (règl
 
 | Agent | Fichiers |
 |---|---|
-| Claude Code | `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/`, `~/.claude/skills/sobre-cerveau/` |
+| Claude Code | `~/.claude/settings.json` (barre d'état), `~/.claude/commands/sobre-stats.md`, `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/`, `~/.claude/skills/sobre-cerveau/` |
 | Chaque projet | `.cerveau/` (seulement avec `sobre cerveau` ou `/sobre-cerveau`, jamais supprimé par la désinstallation) |
 | Codex | `~/.codex/AGENTS.md` (bloc), `~/.codex/config.toml` (bloc) |
 | Cursor | `~/.cursor/mcp.json` (entrée `context-mode`), `.cursor/rules/sobre.mdc` (par projet) |
