@@ -51,6 +51,7 @@ sobre --simulation
 | [CodeGraph](https://github.com/colbymchenry/codegraph) | Graphe du code interrogé au lieu de lire des fichiers entiers | MCP | MCP | MCP |
 | **Règles Sobre** | 6 à 8 consignes courtes : lire des plages de lignes, ne montrer que les échecs des tests… | CLAUDE.md | AGENTS.md | `sobre projet` |
 | **Agent `sobre-eclaireur`** | Les recherches dans le projet passent par Haiku, moins cher, qui renvoie une synthèse | ✓ | — | — |
+| **Cerveau automatique** | Crée le cerveau une seule fois par projet (exploration déléguée à Haiku), puis ajoute une ligne après chaque décision ou bug résolu, sans relire les notes | ✓ | ajout de lignes | ajout de lignes |
 | **Cerveau du projet** | Mémoire durable du projet dans `.cerveau/` (notes Markdown, s'ouvre dans Obsidian) : l'agent lit un index de 30 lignes au lieu de ré-explorer le code à chaque session | `/sobre-cerveau` | règles | règles |
 | **Skill `/sobre-passation`** | Résume la session dans `.claude/passation.md` : tu fais `/clear` et tu reprends sans tout réexpliquer | ✓ | — | — |
 
@@ -127,6 +128,14 @@ Fait écrire à Claude un résumé de 40 lignes maximum dans `.claude/passation.
 
 Claude repart avec 40 lignes au lieu de tout l'historique. Le fichier reste sur ton disque : tu peux reprendre le lendemain, ou dans Codex.
 Pas la peine après trois messages : écrire le résumé coûte un peu de tokens.
+
+**Cerveau automatique** (activé par défaut, `--sans cerveau-auto` pour le couper)
+Claude gère le cerveau tout seul, avec des garde-fous pour ne pas manger les économies :
+- **Création** : une seule fois par projet, seulement pour un vrai projet (dépôt git ou une dizaine de fichiers de code) et une vraie tâche de code, pas une simple question. L'exploration est faite par l'éclaireur (Haiku, moins cher) et tient en 40 lignes.
+- **Ajouts** : en fin de tâche, seulement si une décision technique a été prise ou un bug non évident résolu. Une seule ligne, ajoutée en fin de fichier sans relire la note. Claude le signale en quatre mots (« + 1 piège noté »).
+- **Jamais** pour une question, une petite retouche ou une faute de frappe.
+- **Révision complète** (relire, corriger, condenser) : seulement quand tu tapes `/sobre-cerveau`, par exemple une fois par mois.
+- Codex et Cursor ajoutent aussi leurs lignes quand `.cerveau/` existe. Pour eux, crée-le avec `sobre cerveau`.
 
 **`/sobre-cerveau`** (ajouté par Sobre)
 La mémoire durable du projet, là où la passation ne sert que pour une session.
