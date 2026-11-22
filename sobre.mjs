@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.2.0';
+const VERSION = '0.3.0';
 const DEPOT = 'TeddyF39/sobre';
 const HOME = process.env.SOBRE_HOME || os.homedir();
 const WIN = process.platform === 'win32';
@@ -41,6 +41,7 @@ const OUTILS = {
   regles:       { nom: 'Regles Sobre', role: 'consignes courtes pour lire et repondre plus sobrement' },
   eclaireur:    { nom: 'Agent eclaireur', role: 'recherches dans le projet deleguees a Haiku (Claude Code)' },
   passation:    { nom: 'Skill passation', role: '/sobre-passation pour /clear sans perdre le fil (Claude Code)' },
+  cerveau:      { nom: 'Cerveau du projet', role: 'memoire durable .cerveau/ (Obsidian) pour ne pas re-explorer le code' },
   caveman:      { nom: 'Caveman',      role: 'reponses plus courtes, code intact (Claude Code)' },
   codegraph:    { nom: 'CodeGraph',    role: 'graphe du code interroge au lieu de lire des fichiers' },
   ponytail:     { nom: 'Ponytail',     role: 'pousse a ecrire le code le plus simple qui marche (Claude Code, Codex)' },
@@ -48,11 +49,11 @@ const OUTILS = {
 
 const PROFILS = {
   qualite:   { desc: 'Zero compromis : on coupe le bruit, pas les reponses.',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation'], concis: false },
+               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau'], concis: false },
   equilibre: { desc: 'Recommande : + reponses plus courtes (Caveman) et code plus simple (Ponytail).',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'caveman', 'ponytail'], concis: true },
+               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'caveman', 'ponytail'], concis: true },
   max:       { desc: '+ CodeGraph : pour les gros projets.',
-               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'caveman', 'ponytail', 'codegraph'], concis: true },
+               outils: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'caveman', 'ponytail', 'codegraph'], concis: true },
 };
 
 const AGENTS = {
@@ -63,9 +64,9 @@ const AGENTS = {
 
 // Ce que chaque outil sait faire pour chaque agent
 const PRISE_EN_CHARGE = {
-  claude: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'caveman', 'ponytail', 'codegraph'],
-  codex:  ['regles', 'rtk', 'context-mode', 'ponytail', 'codegraph'],
-  cursor: ['regles', 'rtk', 'context-mode', 'codegraph'],
+  claude: ['regles', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'caveman', 'ponytail', 'codegraph'],
+  codex:  ['regles', 'rtk', 'context-mode', 'cerveau', 'ponytail', 'codegraph'],
+  cursor: ['regles', 'rtk', 'context-mode', 'cerveau', 'codegraph'],
 };
 
 // ---------------------------------------------------------------- utilitaires
@@ -198,6 +199,10 @@ function texteRegles(agent, profil) {
     l.push('- Recherche sur plusieurs fichiers : delegue a l\'agent `sobre-eclaireur` et travaille a partir de sa synthese.');
   if (agent === 'claude' && outils.includes('passation'))
     l.push('- Si `.claude/passation.md` existe et que l\'utilisateur dit « reprends », lis-le d\'abord au lieu de re-explorer le projet.');
+  if (outils.includes('cerveau'))
+    l.push('- Memoire du projet : si `.cerveau/INDEX.md` existe, lis-le avant d\'explorer le code et n\'ouvre que les notes utiles. Les notes sont des indices : si une note contredit le code, le code a raison et la note doit etre corrigee.');
+  if (agent === 'claude' && outils.includes('cerveau'))
+    l.push('- Apres une decision importante ou un piege resolu, propose en une ligne de lancer `/sobre-cerveau`.');
   if (PROFILS[profil].concis)
     l.push('- Reponses directes : pas de reformulation de la demande ni de recapitulatif des etapes. Le code, les commandes, les chemins et les messages d\'erreur restent complets.');
   return l.join('\n');
@@ -259,6 +264,50 @@ Ecris (ou remplace) \`.claude/passation.md\` a la racine du projet, 40 lignes ma
 Regles : uniquement des faits de cette session ; des chemins plutot que du code recopie.
 Termine par une phrase : « Passation ecrite. Fais /clear puis dis : reprends depuis la passation. »
 `;
+
+const SKILL_CERVEAU = `---
+name: sobre-cerveau
+description: Cree ou met a jour le cerveau du projet (.cerveau/, notes Markdown compatibles Obsidian) pour que les prochaines sessions n'aient pas a re-explorer le code.
+disable-model-invocation: true
+---
+
+# Cerveau du projet
+
+Le dossier \`.cerveau/\` a la racine du projet est sa memoire durable. Il evite de re-explorer le code a chaque session. Il s'ouvre dans Obsidian (« Ouvrir un dossier comme coffre »).
+
+## Si \`.cerveau/INDEX.md\` n'existe pas ou ne liste aucune note remplie : creation
+1. Demande a l'agent \`sobre-eclaireur\` une synthese : but du projet, dossiers cles, points d'entree, flux principal, commandes de build et de test, dependances importantes.
+2. Remplis \`architecture.md\` et \`conventions.md\` a partir de cette synthese. \`decisions.md\` et \`pieges.md\` gardent seulement leur titre s'il n'y a rien a y mettre.
+3. Mets a jour \`INDEX.md\`.
+
+## Sinon : mise a jour a partir de la session en cours
+- Decisions prises et pourquoi -> \`decisions.md\` (date + decision + raison en une ligne).
+- Erreurs rencontrees et leur solution -> \`pieges.md\`.
+- Changements de structure (dossiers, modules, commandes) -> \`architecture.md\` ou \`conventions.md\`.
+- Un sujet qui depasse 15 lignes merite sa propre note (ex. \`auth.md\`) : cree-la et ajoute-la a l'index.
+- Corrige ou supprime toute information devenue fausse : une note perimee coute plus cher qu'une note absente.
+
+## Format
+- Frontmatter YAML : \`type\`, \`maj\` (date du jour), \`tags\`.
+- Liens Obsidian entre notes : \`[[nom-de-note]]\`.
+- \`INDEX.md\` : 30 lignes maximum, une ligne par note : \`- [[note]] : ce qu'on y trouve\`.
+- Chaque note : 80 lignes maximum. Des chemins \`fichier:ligne\` plutot que du code recopie. Des faits verifies, pas de suppositions.
+- Jamais de secrets (cles d'API, mots de passe, jetons).
+
+Termine par une seule phrase qui liste les notes modifiees.
+`;
+
+function squeletteCerveau(nom) {
+  const date = new Date().toISOString().slice(0, 10);
+  const note = (type, titre, aide) => `---\ntype: ${type}\nmaj: ${date}\ntags: [cerveau]\n---\n\n# ${titre}\n\n<!-- ${aide} -->\n`;
+  return {
+    'INDEX.md': `---\ntype: index\nmaj: ${date}\ntags: [cerveau]\n---\n\n# Cerveau du projet ${nom}\n\n> Lu en premier par l'agent. Une ligne par note, 30 lignes maximum.\n\n- [[architecture]] : vue d'ensemble, dossiers cles, flux principal\n- [[conventions]] : style, commandes de build et de test, outils\n- [[decisions]] : choix techniques et leur raison\n- [[pieges]] : erreurs deja rencontrees et leur solution\n`,
+    'architecture.md': note('architecture', 'Architecture', 'But du projet, dossiers cles (chemin + role), points d\'entree, flux principal.'),
+    'conventions.md': note('conventions', 'Conventions', 'Langage, style, commandes de build / test / lancement, outils.'),
+    'decisions.md': note('decisions', 'Decisions', 'Une ligne par decision : AAAA-MM-JJ - decision - raison.'),
+    'pieges.md': note('pieges', 'Pieges', 'Une ligne par piege : symptome - cause - solution.'),
+  };
+}
 
 function regleCursor(profil) {
   return `---\ndescription: Regles Sobre (economie de tokens)\nalwaysApply: true\n---\n\n${texteRegles('cursor', profil)}\n`;
@@ -399,6 +448,10 @@ function installerPour(agent, profil, outils, etat) {
     ecrire(p('.claude', 'skills', 'sobre-passation', 'SKILL.md'), SKILL_PASSATION);
     ok('Skill /sobre-passation installe');
   }
+  if (pris.includes('cerveau') && agent === 'claude') {
+    ecrire(p('.claude', 'skills', 'sobre-cerveau', 'SKILL.md'), SKILL_CERVEAU);
+    ok('Skill /sobre-cerveau installe');
+  }
 }
 
 // ---------------------------------------------------------------- commandes
@@ -522,6 +575,7 @@ function cmdEtat() {
       ligne(lire(p('.claude', 'CLAUDE.md')).includes(MD_DEBUT), 'Regles Sobre dans ~/.claude/CLAUDE.md');
       ligne(fs.existsSync(p('.claude', 'agents', 'sobre-eclaireur.md')), 'Agent sobre-eclaireur');
       ligne(fs.existsSync(p('.claude', 'skills', 'sobre-passation', 'SKILL.md')), 'Skill /sobre-passation');
+      ligne(fs.existsSync(p('.claude', 'skills', 'sobre-cerveau', 'SKILL.md')), 'Skill /sobre-cerveau');
       ligne(pluginPresent('context-mode') || null, 'Plugin context-mode (verifie avec /context-mode:ctx-doctor)');
       ligne(pluginPresent('caveman') || null, 'Plugin Caveman (verifie avec /caveman status)');
       ligne(pluginPresent('ponytail') || null, 'Plugin Ponytail');
@@ -536,6 +590,8 @@ function cmdEtat() {
       ligne(fs.existsSync(path.join(process.cwd(), '.cursor', 'rules', 'sobre.mdc')) || null, 'Regles Sobre dans ce projet (.cursor/rules/sobre.mdc)');
     }
   }
+  titre('Projet courant');
+  ligne(fs.existsSync(path.join(process.cwd(), '.cerveau', 'INDEX.md')) || null, `Cerveau du projet (.cerveau/) dans ${path.basename(process.cwd())}`);
   log(gris('\nOK = verifie   ? = non verifiable ici   X = absent'));
 }
 
@@ -551,6 +607,31 @@ function cmdProjet() {
     info('Construction de l\'index CodeGraph...');
     lancer('codegraph', ['init', '-i']);
   }
+}
+
+function cmdCerveau() {
+  const dir = path.join(process.cwd(), '.cerveau');
+  const nom = path.basename(process.cwd());
+  titre(`Cerveau du projet ${nom}`);
+  const fichiers = squeletteCerveau(nom);
+  let crees = 0;
+  for (const [f, contenu] of Object.entries(fichiers)) {
+    const cible = path.join(dir, f);
+    if (fs.existsSync(cible)) continue;
+    if (SIMULATION) { info(`[simulation] ecrirait ${cible}`); crees++; continue; }
+    mkdirp(dir);
+    fs.writeFileSync(cible, contenu);
+    crees++;
+  }
+  if (crees) ok(`${crees} note(s) creee(s) dans .cerveau/`);
+  else ok('.cerveau/ existe deja : rien n\'est ecrase');
+  log(`
+Ensuite :
+  - Claude Code : tape ${gras('/sobre-cerveau')} pour qu'il remplisse les notes (une seule exploration du code),
+    puis relance-le apres une decision importante ou un piege resolu.
+  - Codex / Cursor : demande « remplis le cerveau du projet en suivant .cerveau/INDEX.md ».
+  - Obsidian : Ouvrir un dossier comme coffre -> ${dir}
+  - Git : versionne .cerveau/ pour le partager, ou ajoute-le a .gitignore pour le garder pour toi.`);
 }
 
 // ---------------------------------------------------------------- mesure
@@ -651,6 +732,10 @@ function cmdDesinstaller(opts) {
       try { fs.rmdirSync(p('.claude', 'skills', 'sobre-passation')); } catch { /* ignore */ }
       ok('Skill sobre-passation supprime');
     }
+    if (supprimer(p('.claude', 'skills', 'sobre-cerveau', 'SKILL.md'))) {
+      try { fs.rmdirSync(p('.claude', 'skills', 'sobre-cerveau')); } catch { /* ignore */ }
+      ok('Skill sobre-cerveau supprime');
+    }
   }
   if (agents.includes('codex')) {
     if (retirerBloc(p('.codex', 'AGENTS.md'))) ok('Regles retirees de ~/.codex/AGENTS.md');
@@ -677,6 +762,7 @@ function cmdDesinstaller(opts) {
   info('RTK : voir https://github.com/rtk-ai/rtk (section desinstallation).');
   info('context-mode global : npm uninstall -g context-mode');
   info('CodeGraph : npm uninstall -g @colbymchenry/codegraph');
+  info('Les dossiers .cerveau/ de tes projets sont conserves (ce sont tes notes).');
   log(gris('\nTes propres reglages n\'ont pas ete touches. Sauvegarde dans ~/.sobre/sauvegardes.'));
 }
 
@@ -727,6 +813,7 @@ ${gras('Usage')}
   sobre etat                     verifie ce qui est branche
   sobre mesure [--jours 14]      consommation avant / apres (Claude Code)
   sobre projet                   regles Sobre pour le projet courant (Cursor)
+  sobre cerveau                  cree le cerveau du projet courant (.cerveau/, Obsidian)
   sobre desinstaller [--agents]  retire tout ce que Sobre a pose
   sobre restaurer                remet les fichiers d'avant la derniere operation
   sobre maj                      met a jour Sobre
@@ -758,7 +845,7 @@ function analyser(argv) {
 
 const opts = analyser(process.argv.slice(2));
 const COMMANDES = {
-  installer: cmdInstaller, etat: cmdEtat, mesure: cmdMesure, projet: cmdProjet,
+  installer: cmdInstaller, etat: cmdEtat, mesure: cmdMesure, projet: cmdProjet, cerveau: cmdCerveau,
   desinstaller: cmdDesinstaller, restaurer: cmdRestaurer, maj: cmdMaj, aide: cmdAide,
   version: () => log(VERSION),
 };

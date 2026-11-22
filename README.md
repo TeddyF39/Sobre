@@ -30,7 +30,7 @@ Les outils existent déjà (RTK, context-mode, Caveman, CodeGraph). Le travail d
 
 | Profil | Pour qui | Contenu |
 |---|---|---|
-| `qualite` | Zéro compromis | RTK, context-mode, règles Sobre, agent éclaireur, skill passation |
+| `qualite` | Zéro compromis | RTK, context-mode, règles Sobre, agent éclaireur, passation, cerveau du projet |
 | `equilibre` (défaut) | Recommandé | `qualite` + réponses plus courtes (Caveman) + code plus simple (Ponytail) |
 | `max` | Gros projets | `equilibre` + CodeGraph |
 
@@ -51,6 +51,7 @@ sobre --simulation
 | [CodeGraph](https://github.com/colbymchenry/codegraph) | Graphe du code interrogé au lieu de lire des fichiers entiers | MCP | MCP | MCP |
 | **Règles Sobre** | 6 à 8 consignes courtes : lire des plages de lignes, ne montrer que les échecs des tests… | CLAUDE.md | AGENTS.md | `sobre projet` |
 | **Agent `sobre-eclaireur`** | Les recherches dans le projet passent par Haiku, moins cher, qui renvoie une synthèse | ✓ | — | — |
+| **Cerveau du projet** | Mémoire durable du projet dans `.cerveau/` (notes Markdown, s'ouvre dans Obsidian) : l'agent lit un index de 30 lignes au lieu de ré-explorer le code à chaque session | `/sobre-cerveau` | règles | règles |
 | **Skill `/sobre-passation`** | Résume la session dans `.claude/passation.md` : tu fais `/clear` et tu reprends sans tout réexpliquer | ✓ | — | — |
 
 Sobre délègue l'installation de chaque outil à sa méthode officielle (winget, plugin, npm, `rtk init`, `codegraph install`). Il n'écrit lui-même que ses blocs balisés (`sobre:debut` / `sobre:fin`) et ses propres fichiers, sans toucher au reste de ta config.
@@ -71,6 +72,7 @@ sobre                          installe / met à jour (relançable sans doublon)
 sobre etat                     vérifie ce qui est branché
 sobre mesure [--jours 14]      consommation avant / après (Claude Code)
 sobre projet                   règles Sobre pour le projet courant (Cursor) + index CodeGraph en profil max
+sobre cerveau                  crée le cerveau du projet courant (.cerveau/, compatible Obsidian)
 sobre desinstaller [--agents]  retire tout ce que Sobre a posé
 sobre restaurer                remet les fichiers d'avant la dernière opération
 sobre maj                      met à jour Sobre
@@ -94,6 +96,9 @@ Lit tes journaux Claude Code et compare les tokens consommés par heure de trava
 
 **`sobre projet`**
 À lancer dans le dossier d'un projet. Écrit les règles Sobre dans `.cursor/rules/sobre.mdc` (Cursor n'a pas de fichier de règles global). En profil `max`, construit aussi l'index CodeGraph du projet.
+
+**`sobre cerveau`**
+À lancer dans le dossier d'un projet. Crée `.cerveau/` avec un index et 4 notes vides : architecture, conventions, décisions, pièges. Ne remplace jamais une note existante. Ensuite, dans Claude Code, `/sobre-cerveau` les remplit (voir plus bas).
 
 **`sobre desinstaller`**
 Retire tout ce que Sobre a posé lui-même : ses blocs dans CLAUDE.md et AGENTS.md, l'agent éclaireur, la commande passation, ses entrées MCP. Tes propres réglages ne sont pas touchés. Les outils tiers (RTK, plugins) restent installés : la commande t'indique comment les retirer. `--agents codex` limite le retrait à un seul agent.
@@ -123,6 +128,20 @@ Fait écrire à Claude un résumé de 40 lignes maximum dans `.claude/passation.
 Claude repart avec 40 lignes au lieu de tout l'historique. Le fichier reste sur ton disque : tu peux reprendre le lendemain, ou dans Codex.
 Pas la peine après trois messages : écrire le résumé coûte un peu de tokens.
 
+**`/sobre-cerveau`** (ajouté par Sobre)
+La mémoire durable du projet, là où la passation ne sert que pour une session.
+- **Première fois** : Claude fait explorer le projet une seule fois par l'éclaireur, puis remplit `.cerveau/` (architecture, conventions). Ensuite, à chaque nouvelle session, il lit l'index de 30 lignes et n'ouvre que la note utile, au lieu de relire des dizaines de fichiers.
+- **Ensuite** : relance-le après une décision importante ou un bug résolu. Il ajoute la décision ou le piège et corrige ce qui est devenu faux.
+- **Obsidian** : « Ouvrir un dossier comme coffre » → `.cerveau/`. Les notes sont reliées entre elles (`[[liens]]`), tu peux les lire et les corriger.
+- **Sécurité** : les notes sont des indices. Si une note contredit le code, Claude suit le code et corrige la note. Aucun secret n'y est écrit.
+- **Codex et Cursor** : ils lisent aussi `.cerveau/` grâce aux règles Sobre. Pour le remplir, demande-leur « remplis le cerveau du projet en suivant .cerveau/INDEX.md ».
+
+| | Passation | Cerveau |
+|---|---|---|
+| Durée de vie | Une tâche | Tout le projet |
+| Contenu | Où j'en suis, prochaine étape | Comment le projet est fait, pourquoi, pièges |
+| Quand | Avant un `/clear` en pleine tâche | Après une décision ou un bug résolu |
+
 **`/compact`**
 Claude résume lui-même la conversation et continue avec le résumé. Plus rapide que la passation, mais tu ne choisis pas ce qui est gardé et le résumé disparaît avec la session. Bien pour alléger sans changer de sujet.
 
@@ -148,7 +167,8 @@ Rien à taper : Claude lui confie tout seul les recherches dans le projet (règl
 
 | Agent | Fichiers |
 |---|---|
-| Claude Code | `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/` |
+| Claude Code | `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/`, `~/.claude/skills/sobre-cerveau/` |
+| Chaque projet | `.cerveau/` (seulement avec `sobre cerveau` ou `/sobre-cerveau`, jamais supprimé par la désinstallation) |
 | Codex | `~/.codex/AGENTS.md` (bloc), `~/.codex/config.toml` (bloc) |
 | Cursor | `~/.cursor/mcp.json` (entrée `context-mode`), `.cursor/rules/sobre.mdc` (par projet) |
 | Sobre | `~/.sobre/` (état, sauvegardes) |
