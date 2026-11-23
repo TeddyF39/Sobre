@@ -58,6 +58,41 @@ sobre --simulation
 
 Sobre délègue l'installation de chaque outil à sa méthode officielle (winget, plugin, npm, `rtk init`, `codegraph install`). Il n'écrit lui-même que ses blocs balisés (`sobre:debut` / `sobre:fin`) et ses propres fichiers, sans toucher au reste de ta config.
 
+## Skills pour mieux travailler (Claude Code)
+
+Installés dans tous les profils. Chaque skill ne charge qu'une courte description (environ 100 tokens) à chaque session ; le détail n'est lu que quand la tâche en a besoin.
+
+**Packs maison** (dossier [`skills/`](skills/), à lire et modifier librement) :
+
+| Pack | Quand il sert | Contenu |
+|---|---|---|
+| `sobre-3d` | Blender, modèle 3D, animation, export | Modélisation, matériaux et rendu, animation, rigging, export vers Roblox / Unity / Godot / web / impression 3D. Pensé pour le MCP Blender : inspection par le texte, vérification de l'API dans la doc, rendus de contrôle économes |
+| `sobre-roblox` | Roblox Studio, Luau | Utilise d'abord les skills officiels du MCP Roblox, puis : Luau moderne, architecture client/serveur, sécurité des RemoteEvents, sauvegarde des données, tests en jeu |
+| `sobre-code` | Tout développement | Méthode, débogage, tests, sécurité |
+| `sobre-assistant-ia` | Assistant vocal type Jarvis | Mot d'éveil, reconnaissance et synthèse vocale, IA locale (Ollama, Qwen), routage local / Claude avec plafond de dépense, appli Windows, accès téléphone sécurisé |
+| `sobre-minecraft-discord` | Serveur Minecraft, Discord | Paper, plugins, datapacks, sauvegardes, performances, bot Discord, liaison jeu ↔ Discord |
+
+**Plugins officiels Anthropic** (marketplace `claude-plugins-official`) :
+
+| Plugin | Profils | Rôle |
+|---|---|---|
+| `frontend-design` | tous | Interfaces soignées |
+| `feature-dev` | tous | Fonctionnalités avec agents explorateur, architecte et relecteur |
+| `code-simplifier` | tous | Simplifie le code sans changer son comportement |
+| `commit-commands` | tous | Commit, push, pull request |
+| `skill-creator` | tous | Créer et améliorer tes propres skills |
+| `context7` | tous | Documentation à jour des bibliothèques (évite les API obsolètes) |
+| `pyright-lsp`, `typescript-lsp` | tous | Navigation précise dans le code Python / TypeScript : moins de fichiers lus. Installe `pyright` et `typescript-language-server` via npm |
+| `superpowers` | max | Brainstorming, plans, TDD, débogage systématique. Ajoute du contexte à chaque session |
+| `code-review` | max | Revue de code multi-agents, à la demande |
+| `playwright` | max | Tests de bout en bout dans un navigateur |
+| `claude-security` | max | Recherche de failles, à la demande |
+| `security-guidance` | sur demande seulement | Revue de sécurité automatique à chaque fin de réponse : coûte des tokens en continu, donc jamais installé par défaut (`--outils` pour le forcer) |
+
+Retirer ce dont tu n'as pas besoin : `sobre --sans pack-mc-discord,typescript-lsp`.
+
+Coût fixe estimé de l'ensemble : quelques milliers de tokens par session (descriptions des skills, agents et outils). C'est peu à côté d'une seule exploration de projet, mais si tu ne fais jamais de Roblox ou de Minecraft, retire ces packs.
+
 ## Volontairement exclus
 
 | Outil | Pourquoi |
@@ -197,7 +232,7 @@ Rien à taper : Claude lui confie tout seul les recherches dans le projet (règl
 
 | Agent | Fichiers |
 |---|---|
-| Claude Code | `~/.claude/settings.json` (barre d'état), `~/.claude/commands/sobre-stats.md`, `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/`, `~/.claude/skills/sobre-cerveau/` |
+| Claude Code | `~/.claude/skills/sobre-*` (packs), plugins officiels via `/plugin`, `~/.claude/settings.json` (barre d'état), `~/.claude/commands/sobre-stats.md`, `~/.claude/CLAUDE.md` (bloc), `~/.claude/agents/sobre-eclaireur.md`, `~/.claude/skills/sobre-passation/`, `~/.claude/skills/sobre-cerveau/` |
 | Chaque projet | `.cerveau/` (seulement avec `sobre cerveau` ou `/sobre-cerveau`, jamais supprimé par la désinstallation) |
 | Codex | `~/.codex/AGENTS.md` (bloc), `~/.codex/config.toml` (bloc) |
 | Cursor | `~/.cursor/mcp.json` (entrée `context-mode`), `.cursor/rules/sobre.mdc` (par projet) |

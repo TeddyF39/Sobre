@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.6.1';
+const VERSION = '0.7.0';
 const DEPOT = 'TeddyF39/sobre';
 const HOME = process.env.SOBRE_HOME || os.homedir();
 const WIN = process.platform === 'win32';
@@ -49,14 +49,45 @@ const OUTILS = {
   ponytail:     { nom: 'Ponytail',     role: 'pousse a ecrire le code le plus simple qui marche (Claude Code, Codex)' },
 };
 
+// Packs de skills maison (dossier skills/ du depot), Claude Code
+const PACKS = {
+  'pack-3d':        { dossier: 'sobre-3d',               nom: 'Pack 3D (Blender)',          role: 'modelisation, materiaux, rendu, animation, rigging, export' },
+  'pack-roblox':    { dossier: 'sobre-roblox',           nom: 'Pack Roblox',                role: 'Luau, architecture client/serveur, donnees, MCP Roblox Studio' },
+  'pack-code':      { dossier: 'sobre-code',             nom: 'Pack code',                  role: 'methode, debogage, tests, securite' },
+  'pack-assistant': { dossier: 'sobre-assistant-ia',     nom: 'Pack assistant IA',          role: 'voix, IA locale, routage vers Claude, appli Windows, telephone' },
+  'pack-mc-discord':{ dossier: 'sobre-minecraft-discord', nom: 'Pack Minecraft et Discord', role: 'serveur Paper, plugins, sauvegardes, bot Discord' },
+};
+// Plugins officiels (marketplace Anthropic claude-plugins-official), Claude Code
+const PLUGINS_OFFICIELS = {
+  'frontend-design':  { nom: 'frontend-design',  role: 'interfaces soignees (officiel Anthropic)' },
+  'feature-dev':      { nom: 'feature-dev',      role: 'developpement de fonctionnalites avec agents explorateur, architecte, relecteur' },
+  'code-simplifier':  { nom: 'code-simplifier',  role: 'agent qui simplifie le code sans changer son comportement' },
+  'commit-commands':  { nom: 'commit-commands',  role: 'commandes git : commit, push, pull request' },
+  'skill-creator':    { nom: 'skill-creator',    role: 'creer et ameliorer tes propres skills' },
+  context7:           { nom: 'context7',         role: 'documentation a jour des bibliotheques (MCP)' },
+  'pyright-lsp':      { nom: 'pyright-lsp',      role: 'serveur de langage Python : navigation precise, moins de lectures', npm: ['pyright'], bin: 'pyright' },
+  'typescript-lsp':   { nom: 'typescript-lsp',   role: 'serveur de langage TypeScript/JavaScript', npm: ['typescript-language-server', 'typescript'], bin: 'typescript-language-server' },
+  superpowers:        { nom: 'superpowers',      role: 'brainstorming, plans, TDD, debogage systematique (ajoute du contexte a chaque session)' },
+  'code-review':      { nom: 'code-review',      role: 'revue de code multi-agents (a la demande)' },
+  playwright:         { nom: 'playwright',       role: 'tests de bout en bout dans un navigateur (MCP)' },
+  'claude-security':  { nom: 'claude-security',  role: 'recherche de failles de securite (a la demande)' },
+  'security-guidance':{ nom: 'security-guidance', role: 'revue de securite automatique a chaque fin de reponse (coute des tokens)' },
+};
+const SKILLS_BASE = ['pack-3d', 'pack-roblox', 'pack-code', 'pack-assistant', 'pack-mc-discord',
+  'frontend-design', 'feature-dev', 'code-simplifier', 'commit-commands', 'skill-creator', 'context7', 'pyright-lsp', 'typescript-lsp'];
+const SKILLS_MAX = ['superpowers', 'code-review', 'playwright', 'claude-security'];
+
 const PROFILS = {
   qualite:   { desc: 'Zero compromis : on coupe le bruit, pas les reponses.',
-               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto'], concis: false },
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', ...SKILLS_BASE], concis: false },
   equilibre: { desc: 'Recommande : + reponses plus courtes (Caveman) et code plus simple (Ponytail).',
-               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail'], concis: true },
-  max:       { desc: '+ CodeGraph : pour les gros projets.',
-               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'], concis: true },
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', ...SKILLS_BASE], concis: true },
+  max:       { desc: '+ CodeGraph, Superpowers, revue de code, Playwright, securite : gros projets.',
+               outils: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph', ...SKILLS_BASE, ...SKILLS_MAX], concis: true },
 };
+
+for (const [id, v] of Object.entries(PACKS)) OUTILS[id] = { nom: v.nom, role: v.role };
+for (const [id, v] of Object.entries(PLUGINS_OFFICIELS)) OUTILS[id] = { nom: `Plugin ${v.nom}`, role: v.role };
 
 const AGENTS = {
   claude: { nom: 'Claude Code', detecter: () => existe('claude') || fs.existsSync(p('.claude')) },
@@ -66,7 +97,8 @@ const AGENTS = {
 
 // Ce que chaque outil sait faire pour chaque agent
 const PRISE_EN_CHARGE = {
-  claude: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph'],
+  claude: ['regles', 'stats', 'rtk', 'context-mode', 'eclaireur', 'passation', 'cerveau', 'cerveau-auto', 'caveman', 'ponytail', 'codegraph',
+    ...Object.keys(PACKS), ...Object.keys(PLUGINS_OFFICIELS)],
   codex:  ['regles', 'rtk', 'context-mode', 'cerveau', 'cerveau-auto', 'ponytail', 'codegraph'],
   cursor: ['regles', 'rtk', 'context-mode', 'cerveau', 'cerveau-auto', 'codegraph'],
 };
@@ -403,6 +435,48 @@ function assurerNpmGlobal(binaire, paquet) {
   return true;
 }
 
+function assurerNpmGlobalListe(paquets, binaire) {
+  if (existe(binaire)) return true;
+  if (!existe('npm')) { aFaire(`npm absent : installe Node.js puis relance (${paquets.join(' ')}).`); return false; }
+  info(`Installation de ${paquets.join(' ')}...`);
+  const fait = lancer('npm', ['install', '-g', ...paquets]);
+  rafraichirPath();
+  if (!fait && !SIMULATION) { aFaire(`Echec de npm install -g ${paquets.join(' ')} : lance-le a la main.`); return false; }
+  return true;
+}
+
+// Copie les packs de skills maison : depuis le dossier skills/ a cote du script
+// s'il existe (depot clone), sinon depuis GitHub.
+async function installerPacks(outils) {
+  const packs = outils.filter((o) => PACKS[o]);
+  if (!packs.length) return;
+  titre('Packs de skills (Claude Code)');
+  const local = path.join(path.dirname(fileURLToPath(import.meta.url)), 'skills');
+  const brut = `https://raw.githubusercontent.com/${DEPOT}/main/skills`;
+  const lireSource = async (rel) => {
+    if (fs.existsSync(path.join(local, rel))) return fs.readFileSync(path.join(local, rel), 'utf8');
+    const r = await fetch(`${brut}/${rel}`);
+    if (!r.ok) throw new Error(`${rel} : HTTP ${r.status}`);
+    return r.text();
+  };
+  let index;
+  try { index = JSON.parse(await lireSource('index.json')); }
+  catch (e) { aFaire(`Packs de skills non telecharges (${e.message}). Relance \`sobre\` plus tard.`); return; }
+  for (const id of packs) {
+    const { dossier, nom } = PACKS[id];
+    const fichiers = index[dossier];
+    if (!fichiers) { aFaire(`${nom} introuvable dans le depot.`); continue; }
+    const cible = p('.claude', 'skills', dossier);
+    if (SIMULATION) { info(`[simulation] installerait ${fichiers.length} fichiers dans ${cible}`); continue; }
+    try {
+      const contenus = await Promise.all(fichiers.map((f) => lireSource(`${dossier}/${f}`)));
+      fs.rmSync(cible, { recursive: true, force: true });
+      fichiers.forEach((f, i) => { mkdirp(path.dirname(path.join(cible, f))); fs.writeFileSync(path.join(cible, f), contenus[i]); });
+      ok(`${nom} installe (${fichiers.length} fichiers)`);
+    } catch (e) { aFaire(`${nom} : echec (${e.message}).`); }
+  }
+}
+
 function pluginClaude(depot, id, nom) {
   lancer('claude', ['plugin', 'marketplace', 'add', depot], { silencieux: true });
   if (lancer('claude', ['plugin', 'install', id])) { ok(`${nom} installe (plugin Claude Code)`); return true; }
@@ -476,6 +550,19 @@ function installerPour(agent, profil, outils, etat) {
   }
 
   if (pris.includes('caveman')) pluginClaude('JuliusBrussee/caveman', 'caveman@caveman', 'Caveman');
+
+  if (agent === 'claude') {
+    const officiels = pris.filter((o) => PLUGINS_OFFICIELS[o]);
+    if (officiels.length) lancer('claude', ['plugin', 'marketplace', 'add', 'anthropics/claude-plugins-official'], { silencieux: true });
+    for (const o of officiels) {
+      const def = PLUGINS_OFFICIELS[o];
+      if (def.npm && !existe(def.bin)) {
+        if (!assurerNpmGlobalListe(def.npm, def.bin)) continue;
+      }
+      if (lancer('claude', ['plugin', 'install', `${def.nom}@claude-plugins-official`])) ok(`Plugin officiel ${def.nom} installe`);
+      else aFaire(`${def.nom} : dans Claude Code, tape /plugin install ${def.nom}@claude-plugins-official`);
+    }
+  }
 
   if (pris.includes('ponytail')) {
     if (agent === 'claude') pluginClaude('DietrichGebert/ponytail', 'ponytail@ponytail', 'Ponytail');
@@ -563,6 +650,8 @@ async function cmdInstaller(opts) {
 
   for (const a of agents) installerPour(a, profil, outils, etat);
 
+  if (agents.includes('claude')) await installerPacks(outils);
+
   if (outils.includes('codegraph')) {
     titre('CodeGraph');
     if (assurerNpmGlobal('codegraph', '@colbymchenry/codegraph')) {
@@ -634,6 +723,9 @@ function cmdEtat() {
       ligne(pluginPresent('context-mode') || null, 'Plugin context-mode (verifie avec /context-mode:ctx-doctor)');
       ligne(pluginPresent('caveman') || null, 'Plugin Caveman (verifie avec /caveman status)');
       ligne(pluginPresent('ponytail') || null, 'Plugin Ponytail');
+      for (const v of Object.values(PACKS)) if (fs.existsSync(p('.claude', 'skills', v.dossier, 'SKILL.md'))) ligne(true, v.nom);
+      const plugs = Object.values(PLUGINS_OFFICIELS).filter((v) => pluginPresent(v.nom)).map((v) => v.nom);
+      if (plugs.length) ligne(null, `Plugins officiels reperes : ${plugs.join(', ')} (liste complete : /plugin)`);
     }
     if (a === 'codex') {
       ligne(lire(p('.codex', 'AGENTS.md')).includes(MD_DEBUT), 'Regles Sobre dans ~/.codex/AGENTS.md');
@@ -1031,6 +1123,10 @@ function cmdDesinstaller(opts) {
     if (retirerBloc(p('.claude', 'CLAUDE.md'))) ok('Regles retirees de ~/.claude/CLAUDE.md');
     if (supprimer(p('.claude', 'agents', 'sobre-eclaireur.md'))) ok('Agent sobre-eclaireur supprime');
     if (retirerBarre()) ok('Barre d\'etat retiree');
+    for (const v of Object.values(PACKS)) {
+      const d = p('.claude', 'skills', v.dossier);
+      if (fs.existsSync(d)) { if (!SIMULATION) fs.rmSync(d, { recursive: true, force: true }); ok(`${v.nom} supprime`); }
+    }
     if (supprimer(p('.claude', 'commands', 'sobre-stats.md'))) ok('Commande /sobre-stats supprimee');
     if (supprimer(p('.claude', 'skills', 'sobre-passation', 'SKILL.md'))) {
       try { fs.rmdirSync(p('.claude', 'skills', 'sobre-passation')); } catch { /* ignore */ }
@@ -1063,6 +1159,7 @@ function cmdDesinstaller(opts) {
   titre('Outils tiers (a retirer toi-meme si tu veux)');
   info('Plugins Claude Code (Caveman, Ponytail, context-mode) : menu /plugin dans Claude Code.');
   info('Plugin Codex Ponytail : menu /plugins dans Codex.');
+  info('Plugins officiels (frontend-design, feature-dev, context7...) : menu /plugin dans Claude Code.');
   info('RTK : voir https://github.com/rtk-ai/rtk (section desinstallation).');
   info('context-mode global : npm uninstall -g context-mode');
   info('CodeGraph : npm uninstall -g @colbymchenry/codegraph');

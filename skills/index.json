@@ -1,0 +1,33 @@
+{
+  "sobre-3d": [
+    "SKILL.md",
+    "references/animation.md",
+    "references/export.md",
+    "references/materiaux-rendu.md",
+    "references/modelisation.md",
+    "references/rigging.md"
+  ],
+  "sobre-assistant-ia": [
+    "SKILL.md",
+    "references/appli.md",
+    "references/ia-locale.md",
+    "references/voix.md"
+  ],
+  "sobre-code": [
+    "SKILL.md",
+    "references/debogage.md",
+    "references/methode.md",
+    "references/securite.md",
+    "references/tests.md"
+  ],
+  "sobre-minecraft-discord": [
+    "SKILL.md",
+    "references/discord.md",
+    "references/minecraft.md"
+  ],
+  "sobre-roblox": [
+    "SKILL.md",
+    "references/architecture.md",
+    "references/luau.md"
+  ]
+}
