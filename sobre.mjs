@@ -11,7 +11,7 @@ import { spawnSync } from 'node:child_process';
 import readline from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
 
-const VERSION = '0.6.0';
+const VERSION = '0.6.1';
 const DEPOT = 'TeddyF39/sobre';
 const HOME = process.env.SOBRE_HOME || os.homedir();
 const WIN = process.platform === 'win32';
@@ -731,7 +731,7 @@ async function cmdBarre() {
       parts.push(`5h ${Math.round(rl.five_hour.used_percentage)} %` + (rl.five_hour.resets_at ? ` (reset ${heure(rl.five_hour.resets_at)})` : ''));
     if (rl.seven_day && rl.seven_day.used_percentage != null) parts.push(`7j ${Math.round(rl.seven_day.used_percentage)} %`);
     const cw = j.context_window || {};
-    if (j.cost && j.cost.total_cost_usd != null) parts.push(`session ≈ ${euros(j.cost.total_cost_usd, lireConfig().taux)}`);
+    if (j.cost && j.cost.total_cost_usd != null) parts.push(`session ≈ ${montant(j.cost.total_cost_usd, lireConfig())}`);
     process.stdout.write(parts.join(' · ') || 'Sobre');
     if (rl.five_hour || rl.seven_day) {
       mkdirp(DOSSIER);
@@ -792,8 +792,9 @@ const FICHIER_CONFIG = path.join(DOSSIER, 'config.json');
 const FICHIER_HISTO = path.join(DOSSIER, 'historique.json');
 
 function lireConfig() {
-  try { return { taux: 0.87, abonnement: null, ...JSON.parse(lire(FICHIER_CONFIG)) }; }
-  catch { return { taux: 0.87, abonnement: null }; }
+  const def = { devise: 'USD', taux: 0.87, abonnement: null };
+  try { return { ...def, ...JSON.parse(lire(FICHIER_CONFIG)) }; }
+  catch { return def; }
 }
 
 function cleModele(id) {
@@ -852,11 +853,19 @@ function totalHistorique(h, filtre = () => true) {
   return t;
 }
 
-const euros = (usd, taux) => (usd * taux).toLocaleString('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: usd * taux < 10 ? 2 : 0 });
+// Montant affiche dans la devise choisie (dollars par defaut, euros avec --devise eur).
+function montant(usd, cfg) {
+  const eur = cfg.devise === 'EUR';
+  const v = eur ? usd * cfg.taux : usd;
+  return v.toLocaleString('fr-FR', { minimumFractionDigits: v < 10 ? 2 : 0, maximumFractionDigits: v < 10 ? 2 : 0 }) + (eur ? ' €' : ' $');
+}
+// Abonnement saisi dans la devise choisie -> dollars
+const versUsd = (v, cfg) => (cfg.devise === 'EUR' ? v / cfg.taux : v);
 
 function cmdStats(opts) {
   const cfg = lireConfig();
-  if (opts.taux || opts.abonnement != null) {
+  if (opts.taux || opts.abonnement != null || opts.devise) {
+    if (opts.devise) cfg.devise = opts.devise.toUpperCase() === 'EUR' ? 'EUR' : 'USD';
     if (opts.taux) cfg.taux = opts.taux;
     if (opts.abonnement != null) cfg.abonnement = opts.abonnement;
     if (!SIMULATION) { mkdirp(DOSSIER); fs.writeFileSync(FICHIER_CONFIG, JSON.stringify(cfg, null, 2)); }
@@ -884,15 +893,15 @@ function cmdStats(opts) {
   const out = [];
   const tout = totalHistorique(histo);
   out.push('| Periode | Total | Hors cache lu | Reponses | Messages | Prix API |', '|---|---:|---:|---:|---:|---:|');
-  for (const [n, s] of lignes) out.push(`| ${n} | ${k(s.total)} | ${k(s.frais)} | ${k(s.sortie)} | ${s.n} | ${euros(s.usd, cfg.taux)} |`);
-  if (tout.debut) out.push(`| **Depuis le ${new Date(tout.debut).toLocaleDateString('fr-FR')}** | **${k(tout.tokens)}** | **${k(tout.frais)}** | **${k(tout.sortie)}** | **${tout.n}** | **${euros(tout.usd, cfg.taux)}** |`);
+  for (const [n, s] of lignes) out.push(`| ${n} | ${k(s.total)} | ${k(s.frais)} | ${k(s.sortie)} | ${s.n} | ${montant(s.usd, cfg)} |`);
+  if (tout.debut) out.push(`| **Depuis le ${new Date(tout.debut).toLocaleDateString('fr-FR')}** | **${k(tout.tokens)}** | **${k(tout.frais)}** | **${k(tout.sortie)}** | **${tout.n}** | **${montant(tout.usd, cfg)}** |`);
   if (tout.debut) {
-    out.push('', `Si tu avais paye ces tokens un par un a l'API : ${euros(tout.usd, cfg.taux)} (${tout.usd.toLocaleString("fr-FR", { maximumFractionDigits: 2 })} $, 1 $ = ${String(cfg.taux).replace(".", ",")} €).`);
+    out.push('', `Si tu avais paye ces tokens un par un a l'API : ${montant(tout.usd, cfg)}` + (cfg.devise === 'EUR' ? ` (1 $ = ${String(cfg.taux).replace('.', ',')} €).` : '.'));
     if (cfg.abonnement) {
       const mois = Math.max(1, Math.ceil((Date.now() - new Date(tout.debut)) / (30 * 864e5)));
-      const paye = mois * cfg.abonnement;
-      out.push(`Abonnement sur la periode : ~${euros(paye / cfg.taux, cfg.taux)} (${mois} mois). ` +
-        (tout.usd * cfg.taux > paye ? `Economie : ~${euros(tout.usd - paye / cfg.taux, cfg.taux)}.` : 'L\'API t\'aurait coute moins cher.'));
+      const payeUsd = versUsd(mois * cfg.abonnement, cfg);
+      out.push(`Abonnement sur la periode : ~${montant(payeUsd, cfg)} (${mois} mois). ` +
+        (tout.usd > payeUsd ? `Economie : ~${montant(tout.usd - payeUsd, cfg)}.` : 'L\'API t\'aurait coute moins cher.'));
     }
     if (tout.inconnu) out.push(`Attention : ${k(tout.inconnu)} tokens d'un modele sans prix connu ne sont pas comptes.`);
   }
@@ -912,12 +921,13 @@ function cmdStats(opts) {
       .sort((x, y) => y[1] - x[1]).slice(0, 5);
     out.push('', '| Par modele (depuis le debut) | Tokens | Prix API |', '|---|---:|---:|');
     for (const [m, v] of Object.entries(tout.modeles).sort((x, y) => y[1].usd - x[1].usd).slice(0, 6))
-      out.push(`| ${m} | ${k(v.tokens)} | ${euros(v.usd, cfg.taux)} |`);
+      out.push(`| ${m} | ${k(v.tokens)} | ${montant(v.usd, cfg)} |`);
     out.push('', '| Par projet (7 j) | Total |', '|---|---:|');
     for (const [m, v] of grouper('projet')) out.push(`| ${m} | ${k(v)} |`);
     out.push('', 'Hors cache lu = ce qui pese le plus. Le cache lu coute beaucoup moins cher.',
-      'Prix API = prix publics par million de tokens (releves le 22/11/2026), hors TVA. Taux : sobre stats --taux 0.87',
-      'Comparer a ton abonnement : sobre stats --abonnement 21.60   (en euros par mois)');
+      'Prix API = prix publics par million de tokens (releves le 22/11/2026), hors taxes.',
+      `Comparer a ton abonnement : sobre stats --abonnement 20   (en ${cfg.devise === 'EUR' ? 'euros' : 'dollars'} par mois)`,
+      'Afficher en euros : sobre stats --devise eur   (taux : --taux 0.87)');
   }
   if (!usages.length) out.push('', 'Aucun journal Claude Code trouve.');
   log(out.join('\n'));
@@ -1132,6 +1142,7 @@ function analyser(argv) {
     else if (a.startsWith('--outils')) o.outils = liste(valeur());
     else if (a.startsWith('--jours')) o.jours = parseInt(valeur(), 10);
     else if (a === '--court') o.court = true;
+    else if (a.startsWith('--devise')) o.devise = String(valeur());
     else if (a.startsWith('--taux')) o.taux = parseFloat(String(valeur()).replace(',', '.'));
     else if (a.startsWith('--abonnement')) o.abonnement = parseFloat(String(valeur()).replace(',', '.'));
     else if (a === '-h' || a === '--help' || a === 'aide') o.commande = 'aide';
